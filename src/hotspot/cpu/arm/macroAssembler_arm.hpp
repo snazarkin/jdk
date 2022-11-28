@@ -339,6 +339,12 @@ public:
   void null_check(Register reg, Register tmp, int offset = -1);
   inline void null_check(Register reg) { null_check(reg, noreg, -1); } // for C1 lir_null_check
 
+  void push_cont_fastpath(Register java_thread);
+  void pop_cont_fastpath(Register java_thread);
+
+  // nop
+  void post_call_nop();
+
   // Puts address of allocated object into register `obj` and end of allocated object into register `obj_end`.
   void tlab_allocate(Register obj, Register obj_end, Register tmp1,
                      RegisterOrConstant size_expression, Label& slow_case);

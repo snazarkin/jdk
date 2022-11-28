@@ -301,6 +301,31 @@ void MacroAssembler::align(int modulus) {
   }
 }
 
+void MacroAssembler::push_cont_fastpath(Register java_thread) {
+  if (!Continuations::enabled()) return;
+  ldr(Rtemp, Address(java_thread, JavaThread::cont_fastpath_offset()));
+  cmp(SP, Rtemp);
+  str(SP, Address(java_thread, JavaThread::cont_fastpath_offset()), gt);
+}
+
+void MacroAssembler::pop_cont_fastpath(Register java_thread) {
+  if (!Continuations::enabled()) return;
+  ldr(Rtemp, Address(java_thread, JavaThread::cont_fastpath_offset()));
+  cmp(SP, Rtemp);
+  const Register zr = zero_register(Rtemp);
+  str(zr, Address(java_thread, JavaThread::cont_fastpath_offset()), ge);
+}
+
+void MacroAssembler::post_call_nop() {
+  if (!Continuations::enabled()) {
+    return;
+  }
+  InstructionMark im(this);
+  relocate(post_call_nop_Relocation::spec());
+  nop();
+}
+
+
 int MacroAssembler::set_last_Java_frame(Register last_java_sp,
                                         Register last_java_fp,
                                         bool save_last_java_pc,

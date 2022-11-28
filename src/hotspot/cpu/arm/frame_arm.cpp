@@ -129,6 +129,14 @@ bool frame::safe_for_sender(JavaThread *thread) {
     }
 
 
+    if (Continuation::is_return_barrier_entry(sender_pc)) {
+      // If our sender_pc is the return barrier, then our "real" sender is the continuation entry
+      frame s = Continuation::continuation_bottom_sender(thread, *this, sender_sp);
+      sender_sp = s.sp();
+      sender_pc = s.pc();
+    }
+
+
     // If the potential sender is the interpreter then we can do some more checking
     if (Interpreter::contains(sender_pc)) {
 
@@ -222,10 +230,18 @@ bool frame::safe_for_sender(JavaThread *thread) {
 void frame::patch_pc(Thread* thread, address pc) {
   assert(_cb == CodeCache::find_blob(pc), "unexpected pc");
   address* pc_addr = &((address *)sp())[-sender_sp_offset+return_addr_offset];
+  address pc_old = *pc_addr;
+
   if (TracePcPatching) {
     tty->print_cr("patch_pc at address" INTPTR_FORMAT " [" INTPTR_FORMAT " -> " INTPTR_FORMAT "] ",
                   p2i(pc_addr), p2i(*pc_addr), p2i(pc));
   }
+
+  assert(!Continuation::is_return_barrier_entry(pc_old), "return barrier");
+
+  // Either the return address is the original one or we are going to
+  // patch in the same address that's already there.
+  assert(_pc == pc_old || pc == pc_old || pc_old == 0, "must be");
   DEBUG_ONLY(address old_pc = _pc;)
   *pc_addr = pc;
   _pc = pc; // must be set before call to get_deopt_original_pc
@@ -238,10 +254,6 @@ void frame::patch_pc(Thread* thread, address pc) {
     _deopt_state = not_deoptimized;
     _pc = pc;
   }
-}
-
-bool frame::is_interpreted_frame() const  {
-  return Interpreter::contains(pc());
 }
 
 intptr_t* frame::entry_frame_argument_at(int offset) const {
@@ -272,7 +284,7 @@ BasicObjectLock* frame::interpreter_frame_monitor_begin() const {
 
 // Pointer beyond the "oldest/deepest" BasicObjectLock on stack.
 BasicObjectLock* frame::interpreter_frame_monitor_end() const {
-  BasicObjectLock* result = (BasicObjectLock*) *addr_at(interpreter_frame_monitor_block_top_offset);
+  BasicObjectLock* result = (BasicObjectLock*) at(interpreter_frame_monitor_block_top_offset);
   // make sure the pointer points inside the frame
   assert((intptr_t) fp() >  (intptr_t) result, "result must <  than frame pointer");
   assert((intptr_t) sp() <= (intptr_t) result, "result must >= than stack pointer");
@@ -315,6 +327,11 @@ UpcallStub::FrameData* UpcallStub::frame_data_for_frame(const frame& frame) cons
 bool frame::upcall_stub_frame_is_first() const {
   ShouldNotCallThis();
   return false;
+}
+
+frame frame::sender_for_upcall_stub_frame(RegisterMap* map) const {
+  ShouldNotCallThis();
+  return {};
 }
 
 //------------------------------------------------------------------------------
@@ -387,6 +404,14 @@ frame frame::sender_for_interpreter_frame(RegisterMap* map) const {
     update_map_with_saved_link(map, (intptr_t**) addr_at(link_offset));
   }
 #endif // COMPILER2
+
+  if (Continuation::is_return_barrier_entry(sender_pc())) {
+    if (map->walk_cont()) { // about to walk into an h-stack
+      return Continuation::top_frame(*this, map);
+    } else {
+      return Continuation::continuation_bottom_sender(map->thread(), *this, sender_sp);
+    }
+  }
 
   return frame(sender_sp, unextended_sp, link(), sender_pc());
 }
@@ -509,6 +534,22 @@ void frame::describe_pd(FrameValues& values, int frame_no) {
     DESCRIBE_FP_OFFSET(interpreter_frame_locals);
     DESCRIBE_FP_OFFSET(interpreter_frame_bcp);
     DESCRIBE_FP_OFFSET(interpreter_frame_initial_sp);
+  }
+
+  if (is_java_frame() || Continuation::is_continuation_enterSpecial(*this)) {
+    intptr_t* ret_pc_loc;
+    intptr_t* fp_loc;
+    if (is_interpreted_frame()) {
+      ret_pc_loc = fp() + return_addr_offset;
+      fp_loc = fp();
+    } else {
+      ret_pc_loc = real_fp() - return_addr_offset;
+      fp_loc = real_fp() - sender_sp_offset;
+    }
+    address ret_pc = *(address*)ret_pc_loc;
+    values.describe(frame_no, ret_pc_loc,
+      Continuation::is_return_barrier_entry(ret_pc) ? "return address (return barrier)" : "return address");
+    values.describe(-1, fp_loc, "saved fp", 0); // "unowned" as value belongs to sender
   }
 }
 

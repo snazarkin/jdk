@@ -444,7 +444,9 @@ address TemplateInterpreterGenerator::generate_result_handler_for(BasicType type
 address TemplateInterpreterGenerator::generate_safept_entry_for(TosState state, address runtime_entry) {
   address entry = __ pc();
   __ push(state);
+  __ push_cont_fastpath(Rthread);
   __ call_VM(noreg, runtime_entry);
+  __ pop_cont_fastpath(Rthread);
 
   // load current bytecode
   __ ldrb(R3_bytecode, Address(Rbcp));

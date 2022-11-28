@@ -113,8 +113,6 @@ inline intptr_t* frame::link_or_null() const {
   return os::is_readable_pointer(ptr) ? *ptr : NULL;
 }
 
-inline intptr_t* frame::unextended_sp() const     { return _unextended_sp; }
-
 // Return address:
 
 inline address* frame::sender_pc_addr()      const { return (address*) addr_at(return_addr_offset); }
@@ -232,39 +230,37 @@ inline const ImmutableOopMap* frame::get_oop_map() const {
 }
 
 inline int frame::compiled_frame_stack_argsize() const {
-  Unimplemented();
-  return 0;
+  assert(cb()->is_compiled(), "");
+  return (cb()->as_compiled_method()->method()->num_stack_arg_slots() * VMRegImpl::stack_slot_size) >> LogBytesPerWord;
 }
 
 inline void frame::interpreted_frame_oop_map(InterpreterOopMap* mask) const {
-  Unimplemented();
+  assert(mask != NULL, "");
+  Method* m = interpreter_frame_method();
+  int   bci = interpreter_frame_bci();
+  m->mask_for(bci, mask); // OopMapCache::compute_one_oop_map(m, bci, mask);
 }
 
 inline int frame::sender_sp_ret_address_offset() {
-  Unimplemented();
-  return 0;
+  return frame::sender_sp_offset - frame::return_addr_offset;
 }
 
-inline void frame::set_unextended_sp(intptr_t* value) {
-  Unimplemented();
-}
-
-inline int frame::offset_unextended_sp() const {
-  Unimplemented();
-  return 0;
-}
-
-inline void frame::set_offset_unextended_sp(int value) {
-  Unimplemented();
-}
+inline intptr_t* frame::unextended_sp() const          { assert_absolute(); return _unextended_sp; }
+inline void frame::set_unextended_sp(intptr_t* value)  { _unextended_sp = value; }
+inline int  frame::offset_unextended_sp() const        { assert_offset();   return _offset_unextended_sp; }
+inline void frame::set_offset_unextended_sp(int value) { assert_on_heap();  _offset_unextended_sp = value; }
 
 //------------------------------------------------------------------------------
 // frame::sender
 
-inline frame frame::sender(RegisterMap* map) const {
+inline frame frame::sender_raw(RegisterMap* map) const {
   // Default is we done have to follow them. The sender_for_xxx will
   // update it accordingly
   map->set_include_argument_oops(false);
+
+  if (map->in_cont()) { // already in an h-stack
+    return map->stack_chunk()->sender(*this, map);
+  }
 
   if (is_entry_frame())       return sender_for_entry_frame(map);
   if (is_interpreted_frame()) return sender_for_interpreter_frame(map);
@@ -274,6 +270,16 @@ inline frame frame::sender(RegisterMap* map) const {
 
   assert(false, "should not be called for a C frame");
   return frame();
+}
+
+inline frame frame::sender(RegisterMap* map) const {
+  frame result = sender_raw(map);
+
+  if (map->process_frames() && !map->in_cont()) {
+    StackWatermarkSet::on_iteration(map->thread(), result);
+  }
+
+  return result;
 }
 
 inline frame frame::sender_for_compiled_frame(RegisterMap* map) const {
@@ -294,15 +300,29 @@ inline frame frame::sender_for_compiled_frame(RegisterMap* map) const {
     // Tell GC to use argument oopmaps for some runtime stubs that need it.
     // For C1, the runtime stub might not have oop maps, so set this flag
     // outside of update_register_map.
-    map->set_include_argument_oops(_cb->caller_must_gc_arguments(map->thread()));
-    if (_cb->oop_maps() != NULL) {
-      OopMapSet::update_register_map(this, map);
+    if (!_cb->is_compiled()) { // compiled frames do not use callee-saved registers
+      map->set_include_argument_oops(_cb->caller_must_gc_arguments(map->thread()));
+      if (_cb->oop_maps() != NULL) {
+        OopMapSet::update_register_map(this, map);
+      }
+    } else {
+      assert(!_cb->caller_must_gc_arguments(map->thread()), "");
+      assert(!map->include_argument_oops(), "");
+      assert(oop_map() == NULL || !oop_map()->has_any(OopMapValue::callee_saved_value), "callee-saved value in compiled frame");
     }
 
     // Since the prolog does the save and restore of FP there is no oopmap
     // for it so we must fill in its location as if there was an oopmap entry
     // since if our caller was compiled code there could be live jvm state in it.
     update_map_with_saved_link(map, saved_fp_addr);
+  }
+
+   if (Continuation::is_return_barrier_entry(sender_pc)) {
+    if (map->walk_cont()) { // about to walk into an h-stack
+      return Continuation::top_frame(*this, map);
+    } else {
+      return Continuation::continuation_bottom_sender(map->thread(), *this, sender_sp);
+    }
   }
 
   assert(sender_sp != sp(), "must have changed");

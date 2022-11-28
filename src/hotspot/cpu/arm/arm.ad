@@ -203,6 +203,9 @@ void emit_call_reloc(CodeBuffer &cbuf, const MachCallNode *n, MachOper *m, Reloc
     ret_addr_offset = __ patchable_call(target, rspec, true);
   }
   assert(ret_addr_offset - call_site_offset == ret_addr_offset0, "fix ret_addr_offset()");
+
+  __ post_call_nop();
+
 }
 
 //=============================================================================
