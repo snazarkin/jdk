@@ -855,8 +855,9 @@ static void gen_continuation_enter(MacroAssembler* masm,
 
       continuation_enter_cleanup(masm);
 
-      __ ldr(c_rarg1, Address(rfp, wordSize)); // return address
-      __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::exception_handler_for_return_address), Rthread, c_rarg1);
+      __ mov(c_rarg0, Rthread);
+      __ ldr(c_rarg1, Address(FP, wordSize)); // return address
+      __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::exception_handler_for_return_address), c_rarg0, c_rarg1);
 
       // see OptoRuntime::generate_exception_blob: R0 -- exception oop, r3 -- exception pc
 
@@ -903,9 +904,9 @@ static void gen_continuation_yield(MacroAssembler* masm,
     __ post_call_nop(); // this must be exactly after the pc value that is pushed into the frame info, we use this nop for fast CodeBlob lookup
 
     __ mov(c_rarg0, Rthread);
-    __ set_last_Java_frame(SP, rfp, the_pc, Rtemp);
-    __ call_VM_leaf(Continuation::freeze_entry(), 2);
-    __ reset_last_Java_frame(true);
+    __ set_last_Java_frame(SP, FP, the_pc, Rtemp);
+    __ call_VM_leaf(Continuation::freeze_entry(), c_rarg0, c_rarg1);
+    __ reset_last_Java_frame(Rtemp);
 
     Label pinned;
 

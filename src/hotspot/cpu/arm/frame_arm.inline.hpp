@@ -27,6 +27,7 @@
 
 #include "code/codeCache.hpp"
 #include "code/vmreg.inline.hpp"
+#include "runtime/sharedRuntime.hpp"
 
 // Inline functions for ARM frames:
 
@@ -48,6 +49,24 @@ inline frame::frame(intptr_t* sp) {
   Unimplemented();
 }
 
+inline void frame::setup(address pc) {
+  adjust_unextended_sp();
+
+  address original_pc = CompiledMethod::get_deopt_original_pc(this);
+  if (original_pc != NULL) {
+    _pc = original_pc;
+    _deopt_state = is_deoptimized;
+    assert(_cb == NULL || _cb->as_compiled_method()->insts_contains_inclusive(_pc),
+           "original PC must be in the main code section of the compiled method (or must be immediately following it)");
+  } else {
+    if (_cb == SharedRuntime::deopt_blob()) {
+      _deopt_state = is_deoptimized;
+    } else {
+      _deopt_state = not_deoptimized;
+    }
+  }
+}
+
 inline void frame::init(intptr_t* sp, intptr_t* unextended_sp, intptr_t* fp, address pc) {
   _sp = sp;
   _unextended_sp = unextended_sp;
@@ -55,20 +74,11 @@ inline void frame::init(intptr_t* sp, intptr_t* unextended_sp, intptr_t* fp, add
   _pc = pc;
   assert(pc != NULL, "no pc?");
   _cb = CodeCache::find_blob(pc);
-  adjust_unextended_sp();
   DEBUG_ONLY(_frame_index = -1;)
-
-  address original_pc = CompiledMethod::get_deopt_original_pc(this);
-  if (original_pc != NULL) {
-    _pc = original_pc;
-    assert(_cb->as_compiled_method()->insts_contains_inclusive(_pc),
-           "original PC must be in the main code section of the the compiled method (or must be immediately following it)");
-    _deopt_state = is_deoptimized;
-  } else {
-    _deopt_state = not_deoptimized;
-  }
   _on_heap = false;
   _oop_map = NULL;
+
+  setup(pc);
 }
 
 inline frame::frame(intptr_t* sp, intptr_t* fp, address pc) {
@@ -85,6 +95,48 @@ inline frame::frame(intptr_t* sp, intptr_t* fp) {
   init(sp, sp, fp, pc);
 }
 
+
+inline frame::frame(intptr_t* sp, intptr_t* unextended_sp, intptr_t* fp, address pc, CodeBlob* cb) {
+  intptr_t a = intptr_t(sp);
+  intptr_t b = intptr_t(fp);
+  _sp = sp;
+  _unextended_sp = unextended_sp;
+  _fp = fp;
+  _pc = pc;
+  assert(pc != NULL, "no pc?");
+  _cb = cb;
+  _oop_map = NULL;
+  assert(_cb != NULL, "pc: " INTPTR_FORMAT, p2i(pc));
+  _on_heap = false;
+  DEBUG_ONLY(_frame_index = -1;)
+
+  setup(pc);
+}
+
+inline frame::frame(intptr_t* sp, intptr_t* unextended_sp, intptr_t* fp, address pc, CodeBlob* cb, const ImmutableOopMap* oop_map, bool on_heap) {
+  _sp = sp;
+  _unextended_sp = unextended_sp;
+  _fp = fp;
+  _pc = pc;
+  _cb = cb;
+  _oop_map = oop_map;
+  _deopt_state = not_deoptimized;
+  _on_heap = on_heap;
+  DEBUG_ONLY(_frame_index = -1;)
+
+  // In thaw, non-heap frames use this constructor to pass oop_map.  I don't know why.
+  assert(_on_heap || _cb != nullptr, "these frames are always heap frames");
+if (cb != NULL) {
+    setup(pc);
+  }
+#ifdef ASSERT
+  // The following assertion has been disabled because it would sometime trap for Continuation.run,
+  // which is not *in* a continuation and therefore does not clear the _cont_fastpath flag, but this
+  // is benign even in fast mode (see Freeze::setup_jump)
+  // We might freeze deoptimized frame in slow mode
+  // assert(_pc == pc && _deopt_state == not_deoptimized, "");
+#endif
+}
 
 // Accessors
 
@@ -210,6 +262,10 @@ inline void frame::set_saved_oop_result(RegisterMap* map, oop obj) {
   *result_adr = obj;
 }
 PRAGMA_DIAG_POP
+
+inline bool frame::is_interpreted_frame() const {
+  return Interpreter::contains(pc());
+}
 
 inline int frame::frame_size() const {
   return sender_sp() - sp();

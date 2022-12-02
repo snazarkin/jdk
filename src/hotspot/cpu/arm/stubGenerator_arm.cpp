@@ -2993,8 +2993,9 @@ class StubGenerator: public StubCodeGenerator {
       __ raw_push(R0, R1);
     }
 
+    __ mov(c_rarg0, Rthread);
     __ movw(c_rarg1, (return_barrier ? 1 : 0));
-    __ call_VM_leaf(CAST_FROM_FN_PTR(address, Continuation::prepare_thaw), Rthread, c_rarg1);
+    __ call_VM_leaf(CAST_FROM_FN_PTR(address, Continuation::prepare_thaw), c_rarg0, c_rarg1);
     __ mov(Rtemp, R0); // r0 contains the size of the frames to thaw, 0 if overflow or no more frames
 
     if (return_barrier) {
@@ -3033,9 +3034,10 @@ class StubGenerator: public StubCodeGenerator {
     }
 
     // If we want, we can templatize thaw by kind, and have three different entries
+    __ mov(c_rarg0, Rthread);
     __ movw(c_rarg1, (uint32_t)kind);
 
-    __ call_VM_leaf(Continuation::thaw_entry(), Rthread, c_rarg1);
+    __ call_VM_leaf(Continuation::thaw_entry(), c_rarg0, c_rarg1);
     __ mov(Rtemp, R0); // r0 is the SP of the yielding frame
 
     if (return_barrier) {
@@ -3054,8 +3056,8 @@ class StubGenerator: public StubCodeGenerator {
       __ ldr(c_rarg1, Address(FP, wordSize)); // return address
       __ verify_oop(R0);
       __ mov(Rsave0, R0); // save return value contaning the exception oop in callee-saved R19
-
-      __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::exception_handler_for_return_address), Rthread, c_rarg1);
+      __ mov(c_rarg0, Rthread);
+      __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::exception_handler_for_return_address), c_rarg0, c_rarg1);
       // r0 - the exception handler
 
       // see OptoRuntime::generate_exception_blob: Rexception_obj -- exception oop, Rexception_pc -- exception pc
@@ -3108,7 +3110,8 @@ class StubGenerator: public StubCodeGenerator {
   }
 
 #if INCLUDE_JFR
-
+#undef __
+#define __ masm->
   // For c2: c_rarg0 is junk, call to runtime to write a checkpoint.
   // It returns a jobject handle to the event writer.
   // The handle is dereferenced and the return value is the event writer oop.
@@ -3159,7 +3162,7 @@ class StubGenerator: public StubCodeGenerator {
                                     false);
     return stub;
   }
-
+#undef __
 #endif // INCLUDE_JFR
 
   //---------------------------------------------------------------------------

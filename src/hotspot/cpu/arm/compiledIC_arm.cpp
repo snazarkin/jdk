@@ -33,7 +33,6 @@
 #include "runtime/safepoint.hpp"
 
 // ----------------------------------------------------------------------------
-#if COMPILER2_OR_JVMCI
 #define __ _masm.
 // emit call stub, compiled java to interpreter
 address CompiledStaticCall::emit_to_interp_stub(CodeBuffer &cbuf, address mark) {
@@ -89,7 +88,6 @@ address CompiledStaticCall::emit_to_interp_stub(CodeBuffer &cbuf, address mark) 
 int CompiledStaticCall::reloc_to_interp_stub() {
   return 10;  // 4 in emit_to_interp_stub + 1 in Java_Static_Call
 }
-#endif // COMPILER2_OR_JVMCI
 
 int CompiledStaticCall::to_trampoline_stub_size() {
   // ARM doesn't use trampolines.
