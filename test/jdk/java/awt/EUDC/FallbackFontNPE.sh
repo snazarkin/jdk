@@ -22,10 +22,10 @@
 
 # @test
 # @bug 8368882
-# @compile FallbackFontNP.java
+# @compile FallbackFontNPE.java
 # @requires os.family == "windows"
-# @run shell/timeout=400 FallbackFontNPE.sh 
-# @summary Check if PhysicalFont.getMapper() doesn't throw NPE 
+# @run shell/timeout=400 FallbackFontNPE.sh
+# @summary Check if PhysicalFont.getMapper() doesn't throw NPE
 
 if [ -z "${TESTSRC}" ]; then
   echo "TESTSRC undefined: defaulting to ."
@@ -49,36 +49,38 @@ reg_eudc_1252="HKCU\\EUDC\\1252"
 echo ...Write ${reg_eudc_1252} record
 old_reg_record=""
 if Reg QUERY "${reg_eudc_1252}"; then
-   old_reg_record=${TESTCLASSES}/eudc_1252.reg
-   Reg EXPORT "${reg_eudc_1252}" old_reg_record
+   old_reg_record=$(cygpath -m ${TESTCLASSES}/eudc_1252.reg)
+   Reg EXPORT "${reg_eudc_1252}" ${old_reg_record} /y
+   Reg DELETE "${reg_eudc_1252}" /va /f
 fi
-Reg DELETE "${reg_eudc_1252}"
 Reg import eudc.reg
 
 echo ...Copy custom EUDC.tte file
-windows_eudc_tte=$Windows/Fonts/EUDC.tte 
+windows_eudc_tte=$(cygpath -m ${WINDIR}/Fonts/EUDC.tte)
 old_eudc_tte=""
 if [ -f ${windows_eudc_tte} ]; then
    old_eudc_tte=${TESTCLASSES}/EUDC.tte
+   # Delete first to prevent permission error
+   rm ${old_eudc_tte}
    cp ${windows_eudc_tte} ${old_eudc_tte}
 fi
 cp EUDC.tte ${windows_eudc_tte}
 
 echo Setup fallback font
-FALLBACKFONTDIR=${TESTJAVA}/lib/fonts/fallback
-mkdir -p ${FALLBACKFONTDIR}
-cp $Windows/Fonts/webdings.ttf ${FALLBACKFONTDIR}
+fallbackfontdir=${TESTJAVA}/lib/fonts/fallback
+mkdir -p ${fallbackfontdir}
+cp ${WINDIR}/Fonts/webdings.ttf ${fallbackfontdir}
 
 echo Run java test FallbackFontNPE
-${TESTJAVA}/bin/java ${TESTVMOPTS} -cp ${TESTCLASSPATH} FallbackFontNPE 
-result=$?
+result=0
+${TESTJAVA}/bin/java ${TESTVMOPTS} -cp $(cygpath -m ${TESTCLASSES}) FallbackFontNPE || result=1
 
 echo Delete fallback font
-rm ${FALLBACKFONTDIR}/webdings.ttf
+rm ${fallbackfontdir}/webdings.ttf
 
 echo Restore registry record
-Reg DELETE ${reg_eudc_1252}
-if [ -n ${old_reg_record} ]; 
+Reg DELETE ${reg_eudc_1252} /f
+if [ -f "${old_reg_record}" ]; then
   Reg import ${old_reg_record}
 fi
 
@@ -88,3 +90,4 @@ if [ $result -ne 0 ]; then
 fi
 
 exit 0
+
