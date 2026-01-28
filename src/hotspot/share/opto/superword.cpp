@@ -2987,6 +2987,12 @@ void VTransform::adjust_pre_loop_limit_to_align_main_loop_vectors() {
       phase()->register_new_node(invar_variable, pre_ctrl);
       TRACE_ALIGN_VECTOR_NODE(invar_variable);
     }
+    if (igvn().type(invar_variable)->isa_rawptr()) {
+      // Should we expect pointer here?
+      invar_variable = new CastP2XNode(nullptr, invar_variable);
+      phase()->register_new_node(invar_variable, pre_ctrl);
+      TRACE_ALIGN_VECTOR_NODE(invar_variable);
+    }
     Node* invar_scale_con = phase()->intcon(invar_scale);
     TRACE_ALIGN_VECTOR_NODE(invar_scale_con);
     Node* invar_summand = new MulINode(invar_variable, invar_scale_con);
